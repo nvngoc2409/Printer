@@ -293,8 +293,13 @@ public class BluetoothPrinterManager {
                     guard let p = d.writablePeripheral, let c = d.writablecharacteristic else {
                         return
                     }
-                    for data in content.data(using: encoding) {
-                        p.writeValue(data, for: c, type: .withoutResponse)
+                    let allData = content.data(using: encoding).joined()
+                    let mtu = 20
+                    let chunks = allData.chunked(by: mtu)
+
+                    for chunk in chunks {
+                        p.writeValue(chunk, for: c, type: .withoutResponse)
+                        usleep(3000)
                     }
                 }
             }
@@ -308,8 +313,13 @@ public class BluetoothPrinterManager {
             guard let p = d.writablePeripheral, let c = d.writablecharacteristic else {
                 return
             }
-            for data in content.data(using: encoding) {
-                p.writeValue(data, for: c, type: .withoutResponse)
+            let allData = content.data(using: encoding).joined()
+            let mtu = 20
+            let chunks = allData.chunked(by: mtu)
+
+            for chunk in chunks {
+                p.writeValue(chunk, for: c, type: .withoutResponse)
+                usleep(3000)
             }
         }
     }
@@ -318,5 +328,18 @@ public class BluetoothPrinterManager {
         connectTimer?.invalidate()
         connectTimer = nil
         disconnectAllPrinter()
+    }
+}
+
+extension Data {
+    func chunked(by size: Int) -> [Data] {
+        var chunks: [Data] = []
+        var start = 0
+        while start < count {
+            let end = Swift.min(start + size, count)
+            chunks.append(self[start..<end])
+            start += size
+        }
+        return chunks
     }
 }
