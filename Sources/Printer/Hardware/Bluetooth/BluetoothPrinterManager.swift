@@ -296,7 +296,9 @@ public class BluetoothPrinterManager {
                     let allData = content.data(using: encoding).reduce(Data()) { $0 + $1 }
                     let mtu = 20
                     let chunks = allData.chunked(by: mtu)
-
+                    let warmUp = Data([0x1B, 0x40])
+                    p.writeValue(warmUp, for: c, type: .withoutResponse)
+                    usleep(50_000)
                     DispatchQueue.global(qos: .userInitiated).async {
                         for chunk in chunks {
                             p.writeValue(chunk, for: c, type: .withoutResponse)
@@ -318,7 +320,9 @@ public class BluetoothPrinterManager {
             let allData = content.data(using: encoding).reduce(Data()) { $0 + $1 }
             let mtu = 20
             let chunks = allData.chunked(by: mtu)
-
+            let warmUp = Data([0x1B, 0x40])
+            p.writeValue(warmUp, for: c, type: .withoutResponse)
+            usleep(50_000)
             DispatchQueue.global(qos: .userInitiated).async {
                 for chunk in chunks {
                     p.writeValue(chunk, for: c, type: .withoutResponse)
