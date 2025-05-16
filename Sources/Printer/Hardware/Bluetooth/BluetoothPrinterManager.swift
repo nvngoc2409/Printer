@@ -293,7 +293,7 @@ public class BluetoothPrinterManager {
                     guard let p = d.writablePeripheral, let c = d.writablecharacteristic else {
                         return
                     }
-                    let allData = content.data(using: encoding).joined()
+                    let allData = content.data(using: encoding).reduce(Data()) { $0 + $1 }
                     let mtu = 20
                     let chunks = allData.chunked(by: mtu)
 
@@ -313,7 +313,7 @@ public class BluetoothPrinterManager {
             guard let p = d.writablePeripheral, let c = d.writablecharacteristic else {
                 return
             }
-            let allData = content.data(using: encoding).joined()
+            let allData = content.data(using: encoding).reduce(Data()) { $0 + $1 }
             let mtu = 20
             let chunks = allData.chunked(by: mtu)
 
