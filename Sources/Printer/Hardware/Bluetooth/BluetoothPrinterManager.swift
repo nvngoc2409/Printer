@@ -79,17 +79,18 @@ public extension BluetoothPrinterManager {
 }
 
 public class BluetoothPrinterManager {
+    public var updateHandler: (() -> Void)?
 
     private let queue = DispatchQueue(label: "com.kevin.gong.printer")
 
     private let centralManager: CBCentralManager
 
     private let centralManagerDelegate = BluetoothCentralManagerDelegate(BluetoothPrinterManager.specifiedServices)
+    private let peripheralDelegate = BluetoothPeripheralDelegate(BluetoothPrinterManager.specifiedServices, characteristics: BluetoothPrinterManager.specifiedCharacteristics)
 
     public weak var delegate: PrinterManagerDelegate?
 
     public var errorReport: ((PError) -> ())?
-    public var checkConnected: ((BluetoothPrinter) -> ())?
 
     private var connectTimer: Timer?
 
@@ -108,20 +109,21 @@ public class BluetoothPrinterManager {
 
     private func commonInit() {
 
-        centralManagerDelegate.wellDoneCanWriteData = { [weak self] in
-            let printer = BluetoothPrinter($0)
+        peripheralDelegate.wellDoneCanWriteData = { [weak self] in
+
             self?.connectTimer?.invalidate()
             self?.connectTimer = nil
-            self?.checkConnected?(printer)
-            self?.nearbyPrinterDidChange(.update(printer))
+
+            self?.nearbyPrinterDidChange(.update(BluetoothPrinter($0)))
         }
+
+        centralManagerDelegate.peripheralDelegate = peripheralDelegate
 
         centralManagerDelegate.addedPeripherals = { [weak self] in
 
             guard let printer = (self?.centralManagerDelegate[$0].map { BluetoothPrinter($0) }) else {
                 return
             }
-            self?.checkConnected?(printer)
             self?.nearbyPrinterDidChange(.add(printer))
         }
 
@@ -129,7 +131,6 @@ public class BluetoothPrinterManager {
             guard let printer = (self?.centralManagerDelegate[$0].map { BluetoothPrinter($0) }) else {
                 return
             }
-            self?.checkConnected?(printer)
             self?.nearbyPrinterDidChange(.update(printer))
         }
 
@@ -156,9 +157,9 @@ public class BluetoothPrinterManager {
             guard let `self` = self else {
                 return
             }
-            let printer = BluetoothPrinter(peripheral)
-            self.checkConnected?(printer)
-            self.nearbyPrinterDidChange(.update(printer))
+
+            self.nearbyPrinterDidChange(.update(BluetoothPrinter(peripheral)))
+            self.peripheralDelegate.disconnect(peripheral)
         }
 
         centralManagerDelegate.centralManagerDidFailToConnectPeripheralWithError = { [weak self] _, _, err in
@@ -178,6 +179,7 @@ public class BluetoothPrinterManager {
     private func nearbyPrinterDidChange(_ change: NearbyPrinterChange) {
         DispatchQueue.main.async { [weak self] in
             self?.delegate?.nearbyPrinterDidChange(change)
+            self?.updateHandler?()
         }
     }
 
@@ -266,88 +268,41 @@ public class BluetoothPrinterManager {
         }
     }
 
-    public func autoConnectIds(ids: [String]) {
-        UserDefaults.standard.set(ids, forKey: BluetoothCentralManagerDelegate.UserDefaultKey.autoConectMultiUUID)
-    }
-
     public var canPrint: Bool {
-        var check = false
-        if let uuids = UserDefaults.standard.object(forKey: BluetoothCentralManagerDelegate.UserDefaultKey.autoConectMultiUUID) as? [String] {
-            for uuid in uuids {
-                if let p = centralManagerDelegate.peripheralDelegate.first(where: { delegate in
-                    return delegate.writablePeripheral != nil && delegate.writablecharacteristic != nil && delegate.writablePeripheral?.identifier.uuidString == uuid
-                }) {
-                    check = true
-                }
-            }
-        }
-        return check
-    }
-
-    public func print(_ content: ESCPOSCommandsCreator, encoding: String.Encoding = String.GBEncoding.GB_18030_2000) {
-        if let uuids = UserDefaults.standard.object(forKey: BluetoothCentralManagerDelegate.UserDefaultKey.autoConectMultiUUID) as? [String] {
-            for uuid in uuids {
-                if let d = centralManagerDelegate.peripheralDelegate.first(where: { delegate in
-                    return delegate.writablePeripheral != nil && delegate.writablecharacteristic != nil && delegate.writablePeripheral?.identifier.uuidString == uuid
-                }) {
-                    guard let p = d.writablePeripheral, let c = d.writablecharacteristic else {
-                        return
-                    }
-                    let allData = content.data(using: encoding).reduce(Data()) { $0 + $1 }
-                    let mtu = 20
-                    let chunks = allData.chunked(by: mtu)
-                    let warmUp = Data([0x1B, 0x40])
-                    p.writeValue(warmUp, for: c, type: .withoutResponse)
-                    usleep(50_000)
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        for chunk in chunks {
-                            p.writeValue(chunk, for: c, type: .withoutResponse)
-                            usleep(3000)
-                        }
-                    }
-                }
-            }
+        if peripheralDelegate.writablecharacteristic == nil || peripheralDelegate.writablePeripheral == nil {
+            return false
+        } else {
+            return true
         }
     }
-
-    public func printTest(_ content: ESCPOSCommandsCreator, encoding: String.Encoding = String.GBEncoding.GB_18030_2000, uuid: String) {
-        if let d = centralManagerDelegate.peripheralDelegate.first(where: { delegate in
-            return delegate.writablePeripheral != nil && delegate.writablecharacteristic != nil && delegate.writablePeripheral?.identifier.uuidString == uuid
-        }) {
-            guard let p = d.writablePeripheral, let c = d.writablecharacteristic else {
-                return
-            }
-            let allData = content.data(using: encoding).reduce(Data()) { $0 + $1 }
-            let mtu = 20
-            let chunks = allData.chunked(by: mtu)
-            let warmUp = Data([0x1B, 0x40])
-            p.writeValue(warmUp, for: c, type: .withoutResponse)
-            usleep(50_000)
-            DispatchQueue.global(qos: .userInitiated).async {
-                for chunk in chunks {
-                    p.writeValue(chunk, for: c, type: .withoutResponse)
-                    usleep(3000)
-                }
-            }
+    
+    public var printer: BluetoothPrinter? {
+        guard let p = peripheralDelegate.writablePeripheral else {
+            return nil
         }
+        
+        return BluetoothPrinter(p)
+    }
+
+    public func print(_ content: ESCPOSCommandsCreator, encoding: String.Encoding = String.GBEncoding.GB_18030_2000, completeBlock: ((PError?) -> ())? = nil) {
+
+        guard let p = peripheralDelegate.writablePeripheral, let c = peripheralDelegate.writablecharacteristic else {
+
+            completeBlock?(.deviceNotReady)
+            return
+        }
+
+        for data in content.data(using: encoding) {
+
+            p.writeValue(data, for: c, type: .withoutResponse)
+        }
+
+        completeBlock?(nil)
     }
 
     deinit {
         connectTimer?.invalidate()
         connectTimer = nil
         disconnectAllPrinter()
-    }
-}
-
-extension Data {
-    func chunked(by size: Int) -> [Data] {
-        var chunks: [Data] = []
-        var start = 0
-        while start < count {
-            let end = Swift.min(start + size, count)
-            chunks.append(self[start..<end])
-            start += size
-        }
-        return chunks
     }
 }

@@ -18,8 +18,8 @@ class BluetoothPeripheralDelegate: NSObject, CBPeripheralDelegate {
 
     var wellDoneCanWriteData: ((CBPeripheral) -> ())?
 
-    var writablePeripheral: CBPeripheral?
-    var writablecharacteristic: CBCharacteristic? {
+    private(set) var writablePeripheral: CBPeripheral?
+    private(set) var writablecharacteristic: CBCharacteristic? {
         didSet {
             if let wc = writablecharacteristic, let wp = writablePeripheral {
                 wp.setNotifyValue(true, for: wc)
