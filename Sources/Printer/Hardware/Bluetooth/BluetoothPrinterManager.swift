@@ -293,7 +293,7 @@ public class BluetoothPrinterManager {
         }
 
         var dataArray = content.data(using: encoding)
-        let cutCommand = Data([0x1B, 0x69])
+        let cutCommand = Data([0x1D, 0x56, 0x00])
         dataArray.append(cutCommand)
 
         for data in dataArray {
