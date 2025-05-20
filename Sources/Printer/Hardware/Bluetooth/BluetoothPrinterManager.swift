@@ -292,9 +292,12 @@ public class BluetoothPrinterManager {
             return
         }
 
-        for data in content.data(using: encoding) {
+        var dataArray = content.data(using: encoding)
+        let cutCommand = Data([0x1B, 0x69])
+        dataArray.append(cutCommand)
 
-            p.writeValue(data, for: c, type: .withoutResponse)
+        for data in dataArray {
+          p.writeValue(data, for: c, type: .withoutResponse)
         }
 
         completeBlock?(nil)
